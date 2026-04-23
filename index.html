@@ -4,30 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>성남 2구역 고교 배정 시뮬레이터</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.31.1/build/stlite.css"/>
-    <style>
-      /* 로딩 화면을 조금 더 깔끔하게 보이게 합니다 */
-      #root:empty::before {
-        content: "시뮬레이터 로딩 중... (약 5초 소요)";
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-        font-family: sans-serif;
-        color: #666;
-      }
-    </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.71.0/build/stlite.css"/>
   </head>
   <body>
     <div id="root"></div>
-    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.31.1/build/stlite.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.71.0/build/stlite.js"></script>
     <script>
-      stlite.mount(
-        {
-          requirements: ["pandas", "numpy", "plotly"],
-          entrypoint: "app.py",
-          files: {
-            "app.py": `
+      // stlite가 로드될 때까지 기다렸다가 실행하도록 안전장치를 추가했습니다
+      window.addEventListener("load", function() {
+        if (typeof stlite !== 'undefined') {
+          stlite.mount(
+            {
+              requirements: ["pandas", "numpy", "plotly"],
+              entrypoint: "app.py",
+              files: {
+                "app.py": `
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -41,40 +32,30 @@ ALL_SCHOOLS = [
     "태원고", "판교고", "한솔고"
 ]
 
-# --- 2. 초기 세션 상태 설정 및 URL 로드 ---
 if 'initialized' not in st.session_state:
     params = st.query_params
     st.session_state.step = params.get("step", "SETTING")
     st.session_state.gender = params.get("gender", "남학생")
     st.session_state.sub_step = int(params.get("sub_step", 1))
-    
     for s in ALL_SCHOOLS:
         st.session_state[f"lim_m_{s}"] = int(params.get(f"m_{s}", 1))
         st.session_state[f"lim_f_{s}"] = int(params.get(f"f_{s}", 1))
-    
     def parse_list(key):
         val = params.get(key, "")
         return [x for x in val.split(",") if x] if val else []
-
     st.session_state.c_m = {"s1": parse_list("cm1"), "s2": parse_list("cm2")}
     st.session_state.c_f = {"s1": parse_list("cf1"), "s2": parse_list("cf2")}
-    
     st.session_state.history_data = []
     st.session_state.stage_results = {}
     st.session_state.remaining_quota = 40
     st.session_state.show_intermediate = False
     st.session_state.initialized = True
 
-# --- 3. 데이터 동기화 함수 ---
 def sync_to_url():
     new_params = {
-        "step": st.session_state.step,
-        "gender": st.session_state.gender,
-        "sub_step": st.session_state.sub_step,
-        "cm1": ",".join(st.session_state.c_m["s1"]),
-        "cm2": ",".join(st.session_state.c_m["s2"]),
-        "cf1": ",".join(st.session_state.c_f["s1"]),
-        "cf2": ",".join(st.session_state.c_f["s2"])
+        "step": st.session_state.step, "gender": st.session_state.gender, "sub_step": st.session_state.sub_step,
+        "cm1": ",".join(st.session_state.c_m["s1"]), "cm2": ",".join(st.session_state.c_m["s2"]),
+        "cf1": ",".join(st.session_state.c_f["s1"]), "cf2": ",".join(st.session_state.c_f["s2"])
     }
     for s in ALL_SCHOOLS:
         new_params[f"m_{s}"] = st.session_state[f"lim_m_{s}"]
@@ -87,42 +68,35 @@ DISPLAY_SCHOOLS = sorted([s for s in ALL_SCHOOLS if not (g_code == "m" and s == 
 
 st.set_page_config(page_title="성남 2구역 고교 배정 시뮬레이터", layout="wide")
 
-# --- 4. 메인 화면 로직 ---
-
 if st.session_state.step == "SETTING":
     st.title("⚙️ 1단계: 학교별 마감 지망 설정")
     new_gender = st.radio("성별 선택", ["남학생", "여학생"], index=0 if g_code == "m" else 1, horizontal=True)
     if new_gender != st.session_state.gender:
         st.session_state.gender = new_gender
         sync_to_url(); st.rerun()
-    
     st.divider()
     cols = st.columns(6)
     for i, school in enumerate(DISPLAY_SCHOOLS):
         key = f"lim_{g_code}_{school}"
         with cols[i % 6]:
             st.session_state[key] = st.number_input(f"{school}", 1, 18, value=st.session_state[key], key=f"in_{key}")
-
     if st.button("➡️ 지망 순위 작성하러 가기", use_container_width=True, type="primary"):
         sync_to_url(); st.session_state.step = "CHOICE"; st.rerun()
 
 elif st.session_state.step == "CHOICE":
     st.title(f"📋 2단계: {st.session_state.gender} 지망 순위 작성")
     st.info("💡 학교를 클릭하는 순서대로 지망 순위가 결정됩니다.")
-    
     c1, c2 = st.columns(2)
     with c1:
         curr_choices["s1"] = st.multiselect("1. 학군내 배정 (5개)", DISPLAY_SCHOOLS, default=curr_choices["s1"], max_selections=5, key=f"fixed_ms1_{g_code}")
     with c2:
-        max_n = 16 if g_code == "m" else 17 # 중앙고 제외로 최대 선택수 1씩 감소
+        max_n = 16 if g_code == "m" else 17
         curr_choices["s2"] = st.multiselect(f"2. 구역내 배정 ({max_n}개)", DISPLAY_SCHOOLS, default=curr_choices["s2"], max_selections=max_n, key=f"fixed_ms2_{g_code}")
-
     st.divider()
     if st.button("🚀 시뮬레이션 시작", use_container_width=True, type="primary"):
         if len(curr_choices["s1"]) == 5 and len(curr_choices["s2"]) == max_n:
             st.session_state.step = "STAGE1"; st.session_state.sub_step = 1; st.session_state.history_data = []; sync_to_url(); st.rerun()
-        else:
-            st.error("지망 학교를 모두 선택해 주세요.")
+        else: st.error("지망 학교를 모두 선택해 주세요.")
 
 elif st.session_state.step in ["STAGE1", "STAGE2"]:
     is_s1 = st.session_state.step == "STAGE1"
@@ -130,28 +104,23 @@ elif st.session_state.step in ["STAGE1", "STAGE2"]:
     target = curr_choices["s1"][curr_idx] if is_s1 else curr_choices["s2"][curr_idx]
     base_limit = st.session_state[f"lim_{g_code}_{target}"]
     res_key = f"{st.session_state.step}_{st.session_state.sub_step}"
-    
     def calculate_draw():
         prob = np.random.random()
         actual_limit = base_limit
         if base_limit > 1:
             if prob < 0.2: actual_limit = max(1, base_limit - 1)
             elif prob < 0.5: actual_limit = base_limit + 1
-        
         if st.session_state.sub_step < actual_limit:
             rem, comp, reason = st.session_state.remaining_quota, np.random.randint(5, 20), "정원 여유"
         elif st.session_state.sub_step == actual_limit:
             rem = st.session_state.remaining_quota
             comp = np.random.randint(rem+1, rem+40)
             reason = "추첨 경합"
-        else:
-            rem, comp, reason = 0, np.random.randint(50, 100), "정원 마감"
+        else: rem, comp, reason = 0, np.random.randint(50, 100), "정원 마감"
         return {'comp': comp, 'rem': rem, 'reason': reason, 'others_taken': np.random.randint(5, 12)}
-
     if res_key not in st.session_state.stage_results:
         st.session_state.stage_results[res_key] = calculate_draw()
     res = st.session_state.stage_results[res_key]
-
     if st.session_state.show_intermediate:
         st.markdown("<br>" * 6, unsafe_allow_html=True) 
         _, center_col, _ = st.columns([1, 2, 1])
@@ -169,16 +138,13 @@ elif st.session_state.step in ["STAGE1", "STAGE2"]:
                     st.session_state.remaining_quota = max(0, st.session_state.remaining_quota - res['others_taken'])
                     if is_s1 and st.session_state.sub_step == 5:
                         st.session_state.step = "STAGE2"; st.session_state.sub_step = 1; st.session_state.remaining_quota = 45
-                    else:
-                        st.session_state.sub_step += 1
+                    else: st.session_state.sub_step += 1
                     st.session_state.show_intermediate = False; sync_to_url(); st.rerun()
     else:
         st.title(f"📍 {st.session_state.sub_step}지망 추첨 현황 ({target})")
         m1, m2 = st.columns([2, 1])
         with m1:
-            fig = px.bar(x=["남은 정원", "지원자 수"], y=[res['rem'], res['comp']], 
-                         color=["남은 정원", "지원자 수"], text=[res['rem'], res['comp']], 
-                         color_discrete_map={"남은 정원":"#2ecc71", "지원자 수":"#e74c3c"})
+            fig = px.bar(x=["남은 정원", "지원자 수"], y=[res['rem'], res['comp']], color=["남은 정원", "지원자 수"], text=[res['rem'], res['comp']], color_discrete_map={"남은 정원":"#2ecc71", "지원자 수":"#e74c3c"})
             st.plotly_chart(fig, use_container_width=True)
         with m2:
             st.subheader(target)
@@ -188,12 +154,10 @@ elif st.session_state.step in ["STAGE1", "STAGE2"]:
                 st.warning("경합 발생")
                 st.button("🎯 합격 시나리오", on_click=lambda: st.session_state.update({"current_result":"PASS", "show_intermediate":True}))
                 st.button("❌ 탈락 시나리오", on_click=lambda: st.session_state.update({"current_result":"FAIL", "show_intermediate":True}))
-            else:
-                st.success("안정권"); st.button("결과 확인 👉", on_click=lambda: st.session_state.update({"current_result":"PASS", "show_intermediate":True}))
+            else: st.success("안정권"); st.button("결과 확인 👉", on_click=lambda: st.session_state.update({"current_result":"PASS", "show_intermediate":True}))
             st.divider()
             if st.button("🔄 다시 추첨하기", use_container_width=True):
-                if res_key in st.session_state.stage_results:
-                    del st.session_state.stage_results[res_key]
+                if res_key in st.session_state.stage_results: del st.session_state.stage_results[res_key]
                 st.rerun()
 
 elif st.session_state.step == "RESULT":
@@ -226,10 +190,14 @@ if b_cols[2].button("💾 설정 저장", use_container_width=True):
 if b_cols[3].button("🚨 전체 초기화", use_container_width=True):
     st.query_params.clear(); st.session_state.clear(); st.rerun()
 `
-          }
-        },
-        document.getElementById("root")
-      );
+              }
+            },
+            document.getElementById("root")
+          );
+        } else {
+          document.getElementById("root").innerHTML = "라이브러리 로드 실패. 페이지를 새로고침해 주세요.";
+        }
+      });
     </script>
   </body>
 </html>
