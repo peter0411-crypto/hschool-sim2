@@ -31,11 +31,14 @@ ALL_SCHOOLS = [
     "태원고", "판교고", "한솔고"
 ]
 
+# 세션 초기화
 if 'initialized' not in st.session_state:
     params = st.query_params
     st.session_state.step = params.get("step", "SETTING")
     st.session_state.gender = params.get("gender", "남학생")
     st.session_state.sub_step = int(params.get("sub_step", 1))
+    
+    # 학교별 마감 지망 초기값
     for s in ALL_SCHOOLS:
         st.session_state[f"lim_m_{s}"] = int(params.get(f"m_{s}", 1))
         st.session_state[f"lim_f_{s}"] = int(params.get(f"f_{s}", 1))
@@ -44,8 +47,10 @@ if 'initialized' not in st.session_state:
         val = params.get(key, "")
         return [x for x in val.split(",") if x] if val else []
 
+    # 지망 리스트 초기화
     st.session_state.c_m = {"s1": parse_list("cm1"), "s2": parse_list("cm2")}
     st.session_state.c_f = {"s1": parse_list("cf1"), "s2": parse_list("cf2")}
+    
     st.session_state.history_data = []
     st.session_state.stage_results = {}
     st.session_state.remaining_quota = 40
@@ -54,9 +59,13 @@ if 'initialized' not in st.session_state:
 
 def sync_to_url():
     new_params = {
-        "step": st.session_state.step, "gender": st.session_state.gender, "sub_step": st.session_state.sub_step,
-        "cm1": ",".join(st.session_state.c_m["s1"]), "cm2": ",".join(st.session_state.c_m["s2"]),
-        "cf1": ",".join(st.session_state.c_f["s1"]), "cf2": ",".join(st.session_state.c_f["s2"])
+        "step": st.session_state.step,
+        "gender": st.session_state.gender,
+        "sub_step": st.session_state.sub_step,
+        "cm1": ",".join(st.session_state.c_m["s1"]),
+        "cm2": ",".join(st.session_state.c_m["s2"]),
+        "cf1": ",".join(st.session_state.c_f["s1"]),
+        "cf2": ",".join(st.session_state.c_f["s2"])
     }
     for s in ALL_SCHOOLS:
         new_params[f"m_{s}"] = st.session_state[f"lim_m_{s}"]
@@ -64,13 +73,12 @@ def sync_to_url():
     st.query_params.update(new_params)
 
 g_code = "m" if st.session_state.gender == "남학생" else "f"
-# 현재 성별에 맞는 데이터 참조
 curr_choices = st.session_state.c_m if g_code == "m" else st.session_state.c_f
 DISPLAY_SCHOOLS = sorted([s for s in ALL_SCHOOLS if not (g_code == "m" and s == "영덕여고")])
 
 st.set_page_config(page_title="성남 2구역 고교 배정 시뮬레이터", layout="wide")
 
-# --- 메인 로직 ---
+# --- 메인 화면 로직 ---
 
 if st.session_state.step == "SETTING":
     st.title("⚙️ 1단계: 학교별 마감 지망 설정")
@@ -89,30 +97,30 @@ if st.session_state.step == "SETTING":
 
 elif st.session_state.step == "CHOICE":
     st.title(f"📋 2단계: {st.session_state.gender} 지망 순위 작성")
-    st.info("💡 학교를 클릭하는 순서대로 지망 순위가 결정됩니다.")
+    st.info("💡 학교를 클릭하는 순서대로 지망 순위가 결정됩니다. 연속해서 여러 학교를 선택할 수 있습니다.")
     
+    # 멀티셀렉트 오류 수정을 위한 핵심: on_change를 제거하고 직접 세션 스테이트에 바인딩
     c1, c2 = st.columns(2)
     with c1:
-        # key에 성별 정보를 포함시켜 성별 변경시에만 초기화되도록 수정
-        s1_val = st.multiselect(
-            "1. 학군내 배정 (5개)", 
+        s1_selection = st.multiselect(
+            "1. 학군내 배정 (5개 선택)", 
             DISPLAY_SCHOOLS, 
             default=curr_choices["s1"], 
             max_selections=5, 
-            key=f"ms1_{g_code}" 
+            key=f"fixed_s1_{g_code}" # 성별에 따른 고정 키
         )
-        curr_choices["s1"] = s1_val # 실시간 데이터 업데이트
+        curr_choices["s1"] = s1_selection
 
     with c2:
         max_n = 16 if g_code == "m" else 17
-        s2_val = st.multiselect(
-            f"2. 구역내 배정 ({max_n}개)", 
+        s2_selection = st.multiselect(
+            f"2. 구역내 배정 ({max_n}개 선택)", 
             DISPLAY_SCHOOLS, 
             default=curr_choices["s2"], 
             max_selections=max_n, 
-            key=f"ms2_{g_code}"
+            key=f"fixed_s2_{g_code}" # 성별에 따른 고정 키
         )
-        curr_choices["s2"] = s2_val # 실시간 데이터 업데이트
+        curr_choices["s2"] = s2_selection
 
     st.divider()
     if st.button("🚀 시뮬레이션 시작", use_container_width=True, type="primary"):
@@ -122,10 +130,10 @@ elif st.session_state.step == "CHOICE":
             st.session_state.history_data = []
             sync_to_url(); st.rerun()
         else:
-            st.error(f"지망 학교를 모두 선택해 주세요. (현재 학군내 {len(curr_choices['s1'])}/5, 구역내 {len(curr_choices['s2'])}/{max_n})")
+            st.warning(f"모든 지망을 채워주세요. (현재 학군내 {len(curr_choices['s1'])}/5, 구역내 {len(curr_choices['s2'])}/{max_n})")
 
 elif st.session_state.step in ["STAGE1", "STAGE2"]:
-    # ... (추첨 로직은 이전과 동일하므로 생략하지 않고 통합 유지)
+    # (추첨 및 결과 로직은 동일하게 유지)
     is_s1 = st.session_state.step == "STAGE1"
     curr_idx = st.session_state.sub_step - 1
     target = curr_choices["s1"][curr_idx] if is_s1 else curr_choices["s2"][curr_idx]
@@ -212,6 +220,7 @@ if st.session_state.step != "SETTING":
                 else: st.session_state.step = "CHOICE"
         elif st.session_state.step == "RESULT": st.session_state.step = "STAGE1"
         sync_to_url(); st.rerun()
+
 if b_cols[1].button("🏠 처음으로", use_container_width=True):
     st.session_state.step = "SETTING"; st.session_state.sub_step = 1; st.session_state.history_data = []; sync_to_url(); st.rerun()
 if b_cols[2].button("💾 설정 저장", use_container_width=True):
